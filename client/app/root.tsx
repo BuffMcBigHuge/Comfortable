@@ -46,6 +46,27 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
+export function HydrateFallback() {
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <div className="container mx-auto p-4 space-y-4">
+        <div className="rounded-lg border bg-card text-card-foreground shadow-sm">
+          <div className="p-6 border-b">
+            <div className="flex items-center gap-3">
+              <div className="size-8 rounded-md bg-muted animate-pulse" />
+              <div className="h-6 w-40 rounded bg-muted animate-pulse" />
+            </div>
+          </div>
+          <div className="p-6 space-y-3">
+            <div className="h-8 w-72 rounded bg-muted animate-pulse" />
+            <div className="h-24 rounded bg-muted animate-pulse" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   return <Outlet />;
 }

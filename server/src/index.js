@@ -35,7 +35,30 @@ app.get('/health', (req, res) => res.json({ ok: true }))
 // Storage to temp uploads
 const TMP = path.resolve(process.cwd(), 'tmp')
 fs.mkdirSync(TMP, { recursive: true })
-const upload = multer({ dest: TMP, limits: { fileSize: 1024 * 1024 * 1024 }})
+// Multer with strict filtering per-field to avoid non-video files being treated as clips
+const upload = multer({
+  dest: TMP,
+  limits: { fileSize: 1024 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    try {
+      if (file.fieldname === 'clips') {
+        // Allow only video/* for clips
+        if (file.mimetype && file.mimetype.startsWith('video/')) return cb(null, true)
+        console.warn('[upload] rejecting non-video file in clips field', { name: file.originalname, mimetype: file.mimetype })
+        return cb(null, false)
+      }
+      if (file.fieldname === 'workflows') {
+        // Allow JSON or text for workflows (clients might send .json or text/plain)
+        const ok = file.mimetype === 'application/json' || file.mimetype === 'text/plain' || file.mimetype === 'application/octet-stream'
+        if (ok) return cb(null, true)
+        console.warn('[upload] rejecting non-json file in workflows field', { name: file.originalname, mimetype: file.mimetype })
+        return cb(null, false)
+      }
+    } catch {}
+    // Default accept for any other fields (not used here)
+    cb(null, true)
+  }
+})
 
 function parseFps(stream) {
   const rate = stream?.avg_frame_rate || stream?.r_frame_rate || ''
@@ -220,13 +243,51 @@ app.post('/analyze', upload.array('files', 200), async (req, res) => {
           widgetValues = extractWidgetValuesMap(workflowObj)
         } catch {}
       }
-      // ctime
+      // Creation time: prefer embedded metadata (ffprobe tags), then fall back to filesystem birth time
       let ctimeEpoch = 0
       let ctimeIso = ''
       try {
-        const stat = await fs.promises.stat(f.path)
-        ctimeEpoch = stat.ctimeMs ? stat.ctimeMs/1000 : Math.floor(stat.ctime?.getTime?.()/1000)||0
-        ctimeIso = new Date(ctimeEpoch*1000).toISOString()
+        // 1) Try metadata tags commonly used by encoders/containers
+        const creationTagKeys = [
+          'creation_time',
+          'CreationTime',
+          'com.apple.quicktime.creationdate',
+          'quicktime:creationdate',
+          'date',
+          'date:create',
+          'date:creation'
+        ]
+        for (const t of tagSources) {
+          if (!t || typeof t !== 'object') continue
+          let found = null
+          for (const k of creationTagKeys) {
+            if (k in t) { found = t[k]; break }
+            // Also check case-insensitively
+            const lower = Object.create(null)
+            try { for (const [kk, vv] of Object.entries(t)) lower[String(kk).toLowerCase()] = vv } catch {}
+            if (k.toLowerCase() in lower) { found = lower[k.toLowerCase()]; break }
+          }
+          if (found != null) {
+            const asStr = Array.isArray(found) ? String(found[0]) : String(found)
+            const ms = Date.parse(asStr)
+            if (Number.isFinite(ms) && ms > 0) {
+              ctimeEpoch = ms / 1000
+              ctimeIso = new Date(ms).toISOString()
+              break
+            }
+          }
+        }
+        // 2) Fallback: filesystem birth time of the uploaded temp file (approximate)
+        if (!ctimeEpoch) {
+          const stat = await fs.promises.stat(f.path)
+          const ms = Number.isFinite(stat.birthtimeMs) && stat.birthtimeMs > 0
+            ? stat.birthtimeMs
+            : (stat.birthtime?.getTime?.() || stat.ctimeMs || stat.ctime?.getTime?.() || 0)
+          if (ms > 0) {
+            ctimeEpoch = ms / 1000
+            ctimeIso = new Date(ms).toISOString()
+          }
+        }
       } catch {}
 
       items.push({
@@ -340,7 +401,8 @@ app.post('/export', upload.fields([{ name: 'clips', maxCount: 200 }, { name: 'wo
     const width = Number(resolution.split('x')[0])
     const height = Number(resolution.split('x')[1])
 
-    const clips = (req.files?.clips || [])
+    // Raw uploaded clips (may be empty if all rejected by fileFilter)
+    const clipsRaw = (req.files?.clips || [])
     // Optional: per-clip workflow jsons containing widgetValues
     const workflowFiles = (req.files?.workflows || [])
     const workflows = []
@@ -353,14 +415,26 @@ app.post('/export', upload.fields([{ name: 'clips', maxCount: 200 }, { name: 'wo
         workflows.push({})
       }
     }
-    while (workflows.length < clips.length) workflows.push({})
+    while (workflows.length < clipsRaw.length) workflows.push({})
 
     console.log('[export] options', { mode, gridColumns, showBlackBars, showFilename, resolution, fps, labelFieldsCount: labelFields.length, workflows: workflowFiles.length })
-    console.log('[export] clip count', clips.length)
-    clips.forEach((c, i) => console.log(`[export] clip[${i}]`, { name: c.originalname, path: c.path, size: c.size }))
-    if (!clips.length) {
+    console.log('[export] raw clip count', clipsRaw.length)
+    clipsRaw.forEach((c, i) => console.log(`[export] raw clip[${i}]`, { name: c.originalname, path: c.path, size: c.size, mimetype: c.mimetype }))
+
+    // Validate clips with ffprobe to ensure there is a video stream/duration
+    const probed = await Promise.all(clipsRaw.map(async (c, idx) => {
+      const duration = await probeDuration(c.path)
+      const valid = Number(duration) > 0
+      if (!valid) console.warn('[export] dropping invalid clip (no duration)', { idx, name: c.originalname, path: c.path })
+      return { clip: c, duration, valid, originalIndex: idx }
+    }))
+    const validClips = probed.filter(p => p.valid)
+    if (!validClips.length) {
       return res.status(400).send('No clips uploaded')
     }
+
+    console.log('[export] valid clip count', validClips.length)
+    validClips.forEach((p, i) => console.log(`[export] clip[${i}]`, { name: p.clip.originalname, path: p.clip.path, size: p.clip.size, duration: p.duration }))
 
     // Prepare normalized temporary copies and optional overlays for filename
     const workDir = path.join(TMP, uuidv4())
@@ -368,13 +442,13 @@ app.post('/export', upload.fields([{ name: 'clips', maxCount: 200 }, { name: 'wo
 
     // Grid layout parameters (also used to determine normalization target size for grid mode)
     const gridCols = mode === 'grid' ? Math.max(2, gridColumns) : 1
-    const gridRows = mode === 'grid' ? Math.ceil(clips.length / gridCols) : 1
+    const gridRows = mode === 'grid' ? Math.ceil(validClips.length / gridCols) : 1
     const targetW = mode === 'grid' ? Math.floor(width / gridCols) : width
     const targetH = mode === 'grid' ? Math.floor(height / gridRows) : height
 
     const normalized = []
-    for (let i = 0; i < clips.length; i++) {
-      const clip = clips[i]
+    for (let i = 0; i < validClips.length; i++) {
+      const { clip, originalIndex } = validClips[i]
       const inputPath = clip.path
       const baseName = clip.originalname
       const outPath = path.join(workDir, `${i.toString().padStart(3,'0')}.mp4`)
@@ -396,7 +470,8 @@ app.post('/export', upload.fields([{ name: 'clips', maxCount: 200 }, { name: 'wo
                 .replace(/\"/g, '&quot;')
                 .replace(/'/g, '&apos;')
             }
-            const wfObj = workflows[i] || {}
+            // Align workflow to the original uploaded index so filtering keeps pairs in sync
+            const wfObj = workflows[originalIndex] || {}
             const wfVals = (wfObj && typeof wfObj === 'object' && wfObj.widgetValues && typeof wfObj.widgetValues === 'object') ? wfObj.widgetValues : {}
             const lines = []
             if (Array.isArray(labelFields) && labelFields.length) {

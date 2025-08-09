@@ -3,29 +3,14 @@ import { Timeline } from './components/Timeline.jsx'
 import { VideoTable } from './components/VideoTable.jsx'
 import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card.jsx'
 import { analyzeFiles, exportClips, probeClip } from './lib/api.ts'
-import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
+import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer'
-import { Button } from './components/ui/button.jsx'
-import { Input } from './components/ui/input.jsx'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
 import { ButtonGroup } from '@/components/ui/button-group'
 import { ModeToggle } from '@/components/ModeToggle'
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
-
-// Recursively walk a directory and collect .mp4 files
-async function* walkDirectory(handle, currentPath = '') {
-  for await (const entry of handle.values()) {
-    try {
-      if (entry.kind === 'file') {
-        if (entry.name.toLowerCase().endsWith('.mp4')) {
-          yield { handle: entry, name: entry.name, path: `${currentPath}${entry.name}` }
-        }
-      } else if (entry.kind === 'directory') {
-        yield* walkDirectory(entry, `${currentPath}${entry.name}/`)
-      }
-    } catch {}
-  }
-}
 
 export default function App() {
   const [timeline, setTimeline] = useState([])    // array of selected videos
@@ -44,6 +29,7 @@ export default function App() {
   const [showFilename, setShowFilename] = useState(false)
   const [labelFields, setLabelFields] = useState([])
   const [isTimelineOpen, setIsTimelineOpen] = useState(false)
+  const [tableView, setTableView] = useState('table') // table | diff
 
   async function analyzeAndSet(files) {
     const items = await analyzeFiles(files)
@@ -112,6 +98,14 @@ export default function App() {
     })
     return list
   }, [tableRows, sortKey, sortDir])
+
+  const timelinePathSet = useMemo(() => {
+    const set = new Set()
+    for (const it of timeline) {
+      if (it?.path) set.add(String(it.path))
+    }
+    return set
+  }, [timeline])
 
   // Preferred: adhere to currently visible table columns. Fallback to timeline if none.
   const availableLabelKeys = useMemo(() => {
@@ -219,7 +213,7 @@ export default function App() {
               </CardTitle>
               <Drawer open={isTimelineOpen} onOpenChange={setIsTimelineOpen} direction="right">
                 <DrawerTrigger asChild>
-                  <Button variant="outline" size="sm">Timeline <span className="ml-1 text-xs opacity-70">({timeline.length})</span></Button>
+                  <Button variant="outline" size="sm">Timeline Export <span className="ml-1 text-xs opacity-70">({timeline.length})</span></Button>
                 </DrawerTrigger>
                 <DrawerContent>
                   <div className="flex h-full min-h-[300px] flex-col">
@@ -228,68 +222,92 @@ export default function App() {
                       <DrawerDescription>Arrange clips and configure export settings.</DrawerDescription>
                     </DrawerHeader>
                     <div className="px-4 pb-2">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <label className="text-sm text-muted-foreground">Mode</label>
-                        <ButtonGroup>
-                          <Button
-                            variant={mode==='sequential' ? 'secondary' : 'outline'}
-                            size="sm"
-                            onClick={()=>setMode('sequential')}
-                            aria-pressed={mode==='sequential'}
-                          >
-                            Sequential
-                          </Button>
-                          <Button
-                            variant={mode==='grid' ? 'secondary' : 'outline'}
-                            size="sm"
-                            onClick={()=>setMode('grid')}
-                            aria-pressed={mode==='grid'}
-                          >
-                            Grid
-                          </Button>
-                        </ButtonGroup>
-                        {mode === 'grid' && (
-                          <>
-                            <label className="text-sm text-muted-foreground">Cols</label>
-                            <Input type="number" min={2} max={6} value={gridColumns} onChange={e=>setGridColumns(Number(e.target.value)||2)} className="w-20" />
-                          </>
-                        )}
-                        <label className="inline-flex items-center gap-2 text-sm text-muted-foreground"><input type="checkbox" checked={showBlackBars} onChange={e=>setShowBlackBars(e.target.checked)} /> Black Bars</label>
-                        <label className="inline-flex items-center gap-2 text-sm text-muted-foreground"><input type="checkbox" checked={showFilename} onChange={e=>setShowFilename(e.target.checked)} /> Labels</label>
-                        {showFilename && (
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <Button variant="outline" size="sm">Select label fields ({labelFields.length})</Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent className="w-[520px] max-h-80 overflow-auto">
-                              {availableLabelKeys.length === 0 ? (
-                                <div className="text-xs text-muted-foreground px-2 py-1.5">No workflow fields detected in timeline</div>
-                              ) : (
-                                availableLabelKeys.map((key) => (
-                                  <DropdownMenuCheckboxItem
-                                    key={key}
-                                    checked={labelFields.includes(key)}
-                                    onCheckedChange={(checked) => {
-                                      setLabelFields(prev => {
-                                        const set = new Set(prev)
-                                        if (checked) set.add(key)
-                                        else set.delete(key)
-                                        return Array.from(set)
-                                      })
-                                    }}
-                                  >
-                                    <span className="font-mono text-[11px] leading-tight break-all">{key}</span>
-                                  </DropdownMenuCheckboxItem>
-                                ))
-                              )}
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        )}
-                        <label className="text-sm text-muted-foreground ml-2">Res</label>
-                        <Input value={resolution} onChange={e=>setResolution(e.target.value)} className="w-32" />
-                        <label className="text-sm text-muted-foreground">FPS</label>
-                        <Input type="number" min={1} max={120} value={fps} onChange={e=>setFps(Number(e.target.value)||30)} className="w-24" />
-                      </div>
+                      <details open className="group">
+                        <summary className="cursor-pointer select-none text-sm font-medium py-2">Export Settings</summary>
+                        <div className="mt-2 grid gap-2">
+                          {/* Mode (own line) */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <label className="text-sm text-muted-foreground">Mode</label>
+                            <ButtonGroup>
+                              <Button
+                                variant={mode==='sequential' ? 'secondary' : 'outline'}
+                                size="sm"
+                                onClick={()=>setMode('sequential')}
+                                aria-pressed={mode==='sequential'}
+                              >
+                                Sequential
+                              </Button>
+                              <Button
+                                variant={mode==='grid' ? 'secondary' : 'outline'}
+                                size="sm"
+                                onClick={()=>setMode('grid')}
+                                aria-pressed={mode==='grid'}
+                              >
+                                Grid
+                              </Button>
+                            </ButtonGroup>
+                            {mode === 'grid' && (
+                              <>
+                                <label className="text-sm text-muted-foreground">Cols</label>
+                                <Input type="number" min={2} max={6} value={gridColumns} onChange={e=>setGridColumns(Number(e.target.value)||2)} className="w-20" />
+                              </>
+                            )}
+                          </div>
+
+                          {/* Black bars (own line) */}
+                          <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+                            <Checkbox id="black-bars" checked={showBlackBars} onCheckedChange={(v)=>setShowBlackBars(Boolean(v))} />
+                            <label htmlFor="black-bars" className="cursor-pointer">Black Bars</label>
+                          </div>
+
+                          {/* Labels (own line) */}
+                          <div className="flex items-center gap-2 flex-wrap text-sm text-muted-foreground">
+                            <Checkbox id="show-labels" checked={showFilename} onCheckedChange={(v)=>setShowFilename(Boolean(v))} />
+                            <label htmlFor="show-labels" className="cursor-pointer">Labels</label>
+                            {showFilename && (
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button variant="outline" size="sm">Select label ({labelFields.length})</Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent className="w-[520px] max-h-80 overflow-auto">
+                                  {availableLabelKeys.length === 0 ? (
+                                    <div className="text-xs text-muted-foreground px-2 py-1.5">No workflow fields detected in timeline</div>
+                                  ) : (
+                                    availableLabelKeys.map((key) => (
+                                      <DropdownMenuCheckboxItem
+                                        key={key}
+                                        checked={labelFields.includes(key)}
+                                        onCheckedChange={(checked) => {
+                                          setLabelFields(prev => {
+                                            const set = new Set(prev)
+                                            if (checked) set.add(key)
+                                            else set.delete(key)
+                                            return Array.from(set)
+                                          })
+                                        }}
+                                      >
+                                        <span className="font-mono text-[11px] leading-tight break-all">{key}</span>
+                                      </DropdownMenuCheckboxItem>
+                                    ))
+                                  )}
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            )}
+                          </div>
+
+                          {/* Resolution (own line) */}
+                          <div className="flex items-center gap-2">
+                            <label className="text-sm text-muted-foreground">Res</label>
+                            <Input value={resolution} onChange={e=>setResolution(e.target.value)} className="w-32" />
+                          </div>
+
+                          {/* FPS (own line) */}
+                          <div className="flex items-center gap-2">
+                            <label className="text-sm text-muted-foreground">FPS</label>
+                            <Input type="number" min={1} max={120} value={fps} onChange={e=>setFps(Number(e.target.value)||30)} className="w-24" />
+                          </div>
+                        </div>
+                      </details>
                     </div>
                     <div className="flex-1 overflow-y-auto px-4">
                       <Timeline items={timeline} showLabels={showFilename} labelFields={labelFields} onChange={(next) => {
@@ -311,6 +329,29 @@ export default function App() {
                   </div>
                 </DrawerContent>
               </Drawer>
+              <div className="ml-auto" />
+              <div className="ml-auto">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm">Library</Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-44">
+                    <DropdownMenuItem onClick={onPickDirectory}>Load Directory</DropdownMenuItem>
+                    <DropdownMenuItem onClick={onPickFiles}>Load Files</DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      data-variant="destructive"
+                      onClick={() => {
+                        if (sortedLibraryRows.length === 0) return
+                        if (window.confirm('Clear all files from the library? This does not affect the timeline.')) setTableRows([])
+                      }}
+                      disabled={sortedLibraryRows.length === 0}
+                    >
+                      Clear
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -323,11 +364,7 @@ export default function App() {
                 <div className="space-y-3 max-w-xl">
                   <div className="text-2xl font-semibold">No videos loaded</div>
                   <div className="text-sm text-muted-foreground">
-                    Load a folder or select ComfyUI video files to analyze metadata and build your timeline. You can also drag and drop video files here.
-                  </div>
-                  <div className="flex items-center justify-center gap-2">
-                    <Button variant="secondary" disabled={libraryBusy} onClick={onPickDirectory}>{libraryBusy ? 'Loading…' : 'Load Directory'}</Button>
-                    <Button variant="secondary" disabled={libraryBusy} onClick={onPickFiles}>{libraryBusy ? 'Loading…' : 'Load Files'}</Button>
+                    Use the Library menu at the top right to load a folder or select ComfyUI video files. You can also drag and drop video files here.
                   </div>
                   <div className="text-[11px] text-muted-foreground">
                     Supported: .mp4
@@ -336,49 +373,76 @@ export default function App() {
               </div>
             ) : (
               <div className="mt-2">
-                <div className="flex items-center gap-2 mb-3">
-                  <Button variant="secondary" disabled={libraryBusy} onClick={onPickDirectory}>{libraryBusy ? 'Loading…' : 'Load Directory'}</Button>
-                  <Button variant="secondary" disabled={libraryBusy} onClick={onPickFiles}>{libraryBusy ? 'Loading…' : 'Load Files'}</Button>
-                  {sortedLibraryRows.length > 1 && (
-                    <Dialog>
-                      <DialogTrigger asChild>
-                        <Button variant="outline">Clear</Button>
-                      </DialogTrigger>
-                      <DialogContent>
-                        <DialogHeader>
-                          <DialogTitle>Clear all files?</DialogTitle>
-                          <DialogDescription>This will remove all loaded files from the library. This does not affect the timeline.</DialogDescription>
-                        </DialogHeader>
-                        <DialogFooter>
-                          <DialogClose asChild>
-                            <Button variant="outline">Cancel</Button>
-                          </DialogClose>
-                          <DialogClose asChild>
-                            <Button variant="destructive" onClick={() => setTableRows([])}>Clear</Button>
-                          </DialogClose>
-                        </DialogFooter>
-                      </DialogContent>
-                    </Dialog>
-                  )}
-                  <div className="ml-auto flex items-center gap-2">
-                    <label className="text-sm text-muted-foreground">Sort</label>
-                    <select value={sortKey} onChange={(e)=>setSortKey(e.target.value)} className="bg-background border rounded px-2 py-1">
-                      <option value="name">Name</option>
-                      <option value="duration">Duration</option>
-                      <option value="fps">FPS</option>
-                      <option value="size">Size</option>
-                      <option value="ctime">Creation</option>
-                    </select>
-                    <select value={sortDir} onChange={(e)=>setSortDir(e.target.value)} className="bg-background border rounded px-2 py-1">
-                      <option value="asc">Asc</option>
-                      <option value="desc">Desc</option>
-                    </select>
-                  </div>
-                </div>
                 <VideoTable
                   rows={sortedLibraryRows}
                   setRows={setTableRows}
                   onHeadersChange={(hdrs) => setLabelSourceHeaders(Array.isArray(hdrs) ? hdrs : [])}
+                  addedPaths={timelinePathSet}
+                  view={tableView}
+                  showViewToggle={false}
+                  rightControls={(
+                    <>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="sm">
+                            {(() => {
+                              const map = { name: 'Name', duration: 'Duration', fps: 'FPS', size: 'Size', ctime: 'Creation' };
+                              const label = map[sortKey] || 'Name'
+                              return `Sort: ${label} • ${sortDir === 'asc' ? 'Asc' : 'Desc'}`
+                            })()}
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56">
+                          <DropdownMenuLabel>Sort By</DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuRadioGroup value={sortKey} onValueChange={setSortKey}>
+                            <DropdownMenuRadioItem value="name">Name</DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="duration">Duration</DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="fps">FPS</DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="size">Size</DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="ctime">Creation</DropdownMenuRadioItem>
+                          </DropdownMenuRadioGroup>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuLabel>Direction</DropdownMenuLabel>
+                          <DropdownMenuRadioGroup value={sortDir} onValueChange={setSortDir}>
+                            <DropdownMenuRadioItem value="asc">Ascending</DropdownMenuRadioItem>
+                            <DropdownMenuRadioItem value="desc">Descending</DropdownMenuRadioItem>
+                          </DropdownMenuRadioGroup>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      <ButtonGroup>
+                        <Button
+                          variant={tableView==='diff' ? 'secondary' : 'outline'}
+                          size="sm"
+                          onClick={()=>setTableView('diff')}
+                          aria-pressed={tableView==='diff'}
+                        >
+                          Diff
+                        </Button>
+                        <Button
+                          variant={tableView==='table' ? 'secondary' : 'outline'}
+                          size="sm"
+                          onClick={()=>setTableView('table')}
+                          aria-pressed={tableView==='table'}
+                        >
+                          Table
+                        </Button>
+                      </ButtonGroup>
+                    </>
+                  )}
+                  onAddMany={(rowsToAdd) => {
+                    if (!Array.isArray(rowsToAdd) || rowsToAdd.length === 0) return
+                    setTimeline(t => [
+                      ...t,
+                      ...rowsToAdd.map((row) => ({
+                        name: row.name,
+                        path: row.file_path || row.name,
+                        _file: row._file || row.file || null,
+                        widgetValues: row.widgetValues || {},
+                      })),
+                    ])
+                    try { toast.success('Added to timeline', { description: `${rowsToAdd.length} item(s)` }) } catch {}
+                  }}
                   onAdd={(row) => {
                     setTimeline(t => [...t, { name: row.name, path: row.file_path || row.name, _file: row._file || row.file || null, widgetValues: row.widgetValues || {} }])
                     try { toast.success('Added to timeline', { description: row.name }) } catch {}

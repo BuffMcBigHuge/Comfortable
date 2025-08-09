@@ -15,6 +15,8 @@ export function Media({
   className = '',
   style,
   width,
+  minWidth,
+  minHeight,
   controls = true,
   muted = true,
   loop = false,
@@ -25,8 +27,10 @@ export function Media({
 
   const wrapperStyle = useMemo(() => {
     const w = typeof width === 'number' ? `${width}px` : width
-    return { width: w, aspectRatio, ...style }
-  }, [width, aspectRatio, style])
+    const mw = typeof minWidth === 'number' ? `${minWidth}px` : minWidth
+    const mh = typeof minHeight === 'number' ? `${minHeight}px` : minHeight
+    return { width: w, minWidth: mw, minHeight: mh, aspectRatio, ...style }
+  }, [width, minWidth, minHeight, aspectRatio, style])
 
   useEffect(() => {
     let revoked = false

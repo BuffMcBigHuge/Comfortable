@@ -1,7 +1,9 @@
 import React, { useState } from 'react'
-import { Button } from './ui/button.jsx'
-import { Input } from './ui/input.jsx'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Select } from './ui/select.jsx'
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuRadioGroup, DropdownMenuRadioItem } from '@/components/ui/dropdown-menu'
+import { Checkbox } from '@/components/ui/checkbox'
 
 export function Controls({ onPickDirectory, onPickFiles, sortKey, setSortKey, sortDir, setSortDir, query, setQuery, onExport, busy, resolution, setResolution, fps, setFps }) {
   const [mode, setMode] = useState('sequential') // sequential | grid
@@ -19,15 +21,35 @@ export function Controls({ onPickDirectory, onPickFiles, sortKey, setSortKey, so
       )}
       <div className="flex items-center gap-2">
         <label className="text-sm text-muted-foreground">Sort</label>
-        <Select value={sortKey} onChange={e => setSortKey(e.target.value)}>
-          <option value="name">Name</option>
-          <option value="size">Size</option>
-          <option value="lastModified">Modified</option>
-        </Select>
-        <Select value={sortDir} onChange={e => setSortDir(e.target.value)}>
-          <option value="asc">Asc</option>
-          <option value="desc">Desc</option>
-        </Select>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm">
+              {(() => { const map = { name: 'Name', size: 'Size', lastModified: 'Modified' }; return `By: ${map[sortKey] || 'Name'}` })()}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-44">
+            <DropdownMenuLabel>Sort By</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuRadioGroup value={sortKey} onValueChange={setSortKey}>
+              <DropdownMenuRadioItem value="name">Name</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="size">Size</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="lastModified">Modified</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="outline" size="sm">{sortDir === 'asc' ? 'Asc' : 'Desc'}</Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start" className="w-32">
+            <DropdownMenuLabel>Direction</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuRadioGroup value={sortDir} onValueChange={setSortDir}>
+              <DropdownMenuRadioItem value="asc">Asc</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="desc">Desc</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       <div className="flex items-center gap-2">
         <label className="text-sm text-muted-foreground">Search</label>
@@ -51,8 +73,14 @@ export function Controls({ onPickDirectory, onPickFiles, sortKey, setSortKey, so
         <Input value={resolution} onChange={e => setResolution(e.target.value)} className="w-32" />
         <label className="text-sm text-muted-foreground">FPS</label>
         <Input type="number" min={1} max={120} value={fps} onChange={e => setFps(Number(e.target.value)||30)} className="w-24" />
-        <label className="inline-flex items-center gap-2 text-sm text-muted-foreground"><input type="checkbox" checked={showBlackBars} onChange={e => setShowBlackBars(e.target.checked)} /> Black Bars</label>
-        <label className="inline-flex items-center gap-2 text-sm text-muted-foreground"><input type="checkbox" checked={showFilename} onChange={e => setShowFilename(e.target.checked)} /> Filename</label>
+        <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+          <Checkbox id="ctrl-black-bars" checked={showBlackBars} onCheckedChange={(v)=>setShowBlackBars(Boolean(v))} />
+          <label htmlFor="ctrl-black-bars" className="cursor-pointer">Black Bars</label>
+        </div>
+        <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+          <Checkbox id="ctrl-filename" checked={showFilename} onCheckedChange={(v)=>setShowFilename(Boolean(v))} />
+          <label htmlFor="ctrl-filename" className="cursor-pointer">Filename</label>
+        </div>
         <Button disabled={busy} onClick={() => onExport({ mode, gridColumns, showBlackBars, showFilename })}>{busy ? 'Exporting...' : 'Export'}</Button>
       </div>
     </div>

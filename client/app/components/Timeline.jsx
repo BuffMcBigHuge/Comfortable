@@ -2,6 +2,8 @@ import React from 'react'
 import { Button } from './ui/button.jsx'
 import { Card, CardContent } from './ui/card.jsx'
 import { Media } from './Media.jsx'
+import { Badge } from '@/components/ui/badge'
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from '@/components/ui/dialog'
 
 function formatTime(t) {
   const s = Math.floor(t % 60).toString().padStart(2, '0')
@@ -32,9 +34,9 @@ function Row({ item, onRemove, index, showLabels, labelFields }) {
   return (
     <div className="bg-card border rounded p-2 mr-2">
       <div className="flex flex-col items-start">
-        <Media source={item} width={'10rem'} />
+        <Media source={item} width={'100%'} />
         {showLabels && (
-          <div className="mt-2 max-w-[10rem] text-[10px] leading-snug text-muted-foreground whitespace-pre-wrap break-words">
+          <div className="mt-2 max-w-[100%] text-[10px] leading-snug text-muted-foreground whitespace-pre-wrap break-words">
             {buildCaptionLines(item, labelFields).join('\n')}
           </div>
         )}
@@ -70,9 +72,35 @@ export function Timeline({ items, onChange, showLabels = false, labelFields = []
         }
       }}
     >
-      <div className="flex items-center justify-between text-sm opacity-70">
-        <span>Timeline</span>
-        <span>Total: {formatTime(totalDur)}</span>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="font-medium">Timeline</span>
+          <Badge variant="secondary">{items.length}</Badge>
+          <span className="text-sm text-muted-foreground ml-2">Total: {formatTime(totalDur)}</span>
+        </div>
+        <div className="inline-flex items-center gap-2">
+          {items.length > 0 && (
+            <Dialog>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm">Clear</Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Clear timeline?</DialogTitle>
+                  <DialogDescription>This will remove all clips from the timeline. This does not delete any files.</DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <DialogClose asChild>
+                    <Button variant="outline">Cancel</Button>
+                  </DialogClose>
+                  <DialogClose asChild>
+                    <Button variant="destructive" onClick={() => onChange([])}>Clear</Button>
+                  </DialogClose>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+          )}
+        </div>
       </div>
       <Card>
         <CardContent className="space-y-2 p-3">

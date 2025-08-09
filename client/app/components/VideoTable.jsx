@@ -4,19 +4,19 @@ import { Media } from './Media.jsx'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { ButtonGroup } from '@/components/ui/button-group'
-import { Input } from '@/components/ui/input.jsx'
-import { Checkbox } from '@/components/ui/checkbox.jsx'
-import { Label } from '@/components/ui/label.jsx'
-import { Badge } from '@/components/ui/badge.jsx'
+import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog'
 
-export function VideoTable({ onAdd, rows: controlledRows, setRows: setControlledRows, onHeadersChange }) {
+export function VideoTable({ onAdd, onAddMany, rows: controlledRows, setRows: setControlledRows, onHeadersChange, addedPaths, view: controlledView, showViewToggle = true, rightControls = null }) {
   const [rows, setRows] = useState([])
   const [search, setSearch] = useState('')
   const [hidePaths, setHidePaths] = useState(true)
   const [keyHideInput, setKeyHideInput] = useState('seed,widgets_values[0],Set_SEED')
-  // Diff view: always show only changed values compared to previous row
-  const [view, setView] = useState('table') // table | diff
+  // Diff view: allow parent to control; fallback to internal state
+  const [internalView, setInternalView] = useState('table') // table | diff
   const [busy, setBusy] = useState(false)
   // Whitelist: when enabled, only include mapped values from a node-type list
   const [useWhitelist, setUseWhitelist] = useState(true)
@@ -105,28 +105,54 @@ export function VideoTable({ onAdd, rows: controlledRows, setRows: setControlled
     return filtered
   }, [data, nodeSearch])
 
+  const effectiveView = controlledView ?? internalView
+
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-3">
-        {!setControlledRows && (
-          <Button disabled={busy} onClick={loadAny} size="sm">
-            {busy ? 'Loading…' : 'Load'}
+    <div className="space-y-3">
+      {/* Primary toolbar: Left count/Add All, Center search, Right injected controls */}
+      <div className="flex items-center gap-3">
+        <div className="inline-flex items-center gap-2">
+          <Badge variant="secondary">{filtered.length}</Badge>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              try {
+                const toAdd = filtered
+                if (!Array.isArray(toAdd) || toAdd.length === 0) return
+                onAddMany?.(toAdd)
+              } catch {}
+            }}
+          >
+            Add All
           </Button>
-        )}
-        <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
-          <Checkbox id="hidePaths" checked={hidePaths} onCheckedChange={(v)=>setHidePaths(Boolean(v))} />
-          <Label htmlFor="hidePaths" className="cursor-pointer">Hide file_path and ctime</Label>
         </div>
-        <div className="flex items-center gap-2 text-sm">
-          <Label className="text-muted-foreground">Hide keys</Label>
-          <Input
-            value={keyHideInput}
-            onChange={(e)=>setKeyHideInput(e.target.value)}
-            placeholder="seed, widgets_values[0], /regex/i"
-            className="h-8 w-[320px]"
-          />
+        <div className="flex-1 flex justify-center">
+          <Input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Filter rows..." className="w-[520px] max-w-full h-8" />
         </div>
-        <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="ml-auto inline-flex items-center gap-2">
+          {rightControls}
+        </div>
+      </div>
+
+      {/* Secondary toolbar: Left display options, Right whitelist */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="inline-flex items-center gap-3">
+          <div className="inline-flex items-center gap-2 text-sm text-muted-foreground">
+            <Checkbox id="hidePaths" checked={hidePaths} onCheckedChange={(v)=>setHidePaths(Boolean(v))} />
+            <Label htmlFor="hidePaths" className="cursor-pointer">Hide file_path and ctime</Label>
+          </div>
+          <div className="flex items-center gap-2 text-sm">
+            <Label className="text-muted-foreground">Hide keys</Label>
+            <Input
+              value={keyHideInput}
+              onChange={(e)=>setKeyHideInput(e.target.value)}
+              placeholder="seed, widgets_values[0], /regex/i"
+              className="h-8 w-[320px]"
+            />
+          </div>
+        </div>
+        <div className="ml-auto inline-flex items-center gap-2 text-sm text-muted-foreground">
           <Checkbox id="useWhitelist" checked={useWhitelist} onCheckedChange={(v)=>setUseWhitelist(Boolean(v))} />
           <Label htmlFor="useWhitelist" className="cursor-pointer">Node whitelist</Label>
           <Dialog open={whitelistOpen} onOpenChange={setWhitelistOpen}>
@@ -152,7 +178,6 @@ export function VideoTable({ onAdd, rows: controlledRows, setRows: setControlled
                     size="sm"
                     variant="outline"
                     onClick={() => {
-                      // Toggle all visible
                       const next = new Set(whitelistSet)
                       const allVisibleSelected = uniqueNodeTypes.every(n => next.has(n.type))
                       if (allVisibleSelected) uniqueNodeTypes.forEach(n => next.delete(n.type))
@@ -179,13 +204,11 @@ export function VideoTable({ onAdd, rows: controlledRows, setRows: setControlled
                       ) : uniqueNodeTypes.map((n) => (
                         <tr key={n.type} className="border-b">
                           <td className="px-2 py-1 align-top">
-                            <input
-                              type="checkbox"
-                              className="accent-foreground"
+                            <Checkbox
                               checked={whitelistSet.has(n.type)}
-                              onChange={(e)=>{
+                              onCheckedChange={(v)=>{
                                 const next = new Set(whitelistSet)
-                                if (e.target.checked) next.add(n.type)
+                                if (v) next.add(n.type)
                                 else next.delete(n.type)
                                 setWhitelistSet(next)
                               }}
@@ -229,48 +252,22 @@ export function VideoTable({ onAdd, rows: controlledRows, setRows: setControlled
             </DialogContent>
           </Dialog>
         </div>
-        <Badge variant="secondary" className="ml-auto">
-          {filtered.length}
-        </Badge>
-        <div>
-          <ButtonGroup>
-            <Button
-              variant={view==='diff' ? 'secondary' : 'outline'}
-              size="sm"
-              onClick={()=>setView('diff')}
-              aria-pressed={view==='diff'}
-            >
-              Diff
-            </Button>
-            <Button
-              variant={view==='table' ? 'secondary' : 'outline'}
-              size="sm"
-              onClick={()=>setView('table')}
-              aria-pressed={view==='table'}
-            >
-              Table
-            </Button>
-          </ButtonGroup>
-        </div>
-      </div>
-      <div className="flex items-center gap-2">
-        <Input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Filter rows by text..." className="w-80 h-8" />
       </div>
 
       {busy ? (
         <SkeletonList />
       ) : data.length === 0 ? (
         <div className="text-sm text-muted-foreground">Load videos to analyze workflow metadata.</div>
-      ) : view === 'table' ? (
-        <Table headers={headers} rows={filtered} onAdd={onAdd} spec={spec} hidePaths={hidePaths} />
+      ) : effectiveView === 'table' ? (
+        <Table headers={headers} rows={filtered} onAdd={onAdd} spec={spec} hidePaths={hidePaths} addedPaths={addedPaths} />
       ) : (
-        <Diff rows={filtered} headers={headers} spec={spec} hidePaths={hidePaths} />
+        <Diff rows={filtered} headers={headers} spec={spec} hidePaths={hidePaths} addedPaths={addedPaths} onAdd={onAdd} />
       )}
     </div>
   )
 }
 
-function Table({ headers, rows, onAdd, spec, hidePaths }) {
+function Table({ headers, rows, onAdd, spec, hidePaths, addedPaths }) {
   const visibleHeaders = headers.filter(h => !fieldIsHidden(h, spec, hidePaths))
   const topScrollRef = useRef(null)
   const mainScrollRef = useRef(null)
@@ -306,27 +303,44 @@ function Table({ headers, rows, onAdd, spec, hidePaths }) {
       {/* Main scroll area with sticky header */}
       <div ref={mainScrollRef} className="overflow-auto max-h-[60vh]">
         <table className="w-full text-xs">
-          <thead className="bg-muted/50 sticky top-0 z-10">
+          <thead className="bg-muted/80 sticky top-0 z-20">
             <tr>
-              <th className="px-2 py-1 text-left whitespace-nowrap">#</th>
-              <th className="px-2 py-1 text-left whitespace-nowrap">Preview</th>
-              <th className="px-2 py-1 text-left whitespace-nowrap">Add</th>
-              {visibleHeaders.map(h => <th key={h} className="px-2 py-1 text-left whitespace-nowrap">{h}</th>)}
+              <th className="px-2 py-2 text-left whitespace-nowrap w-10 sticky left-0 z-20 bg-muted/50">#</th>
+              <th className="px-2 py-2 text-left whitespace-nowrap w-44 sticky left-10 z-20 bg-muted/50">Preview</th>
+              <th className="px-2 py-2 text-left whitespace-nowrap sticky left-[13.5rem] z-20 bg-muted/50">Timeline</th>
+              {visibleHeaders.map((h, i) => (
+                <th
+                  key={h}
+                  className={`px-2 py-2 text-left whitespace-nowrap ${i === 0 ? 'pl-4' : ''}`}
+                >
+                  {h}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
-            {rows.map((r, idx) => (
-              <tr key={r.id ?? idx} className="border-b hover:bg-muted/30">
-                <td className="px-2 py-1 whitespace-nowrap align-top">{idx+1}</td>
-                <td className="px-2 py-1 align-top whitespace-nowrap">
-                  <RowPreview row={r} />
-                </td>
-                <td className="px-2 py-1 whitespace-nowrap"><button className="px-2 py-1 rounded bg-secondary hover:bg-secondary/80" onClick={()=>onAdd && onAdd(r)}>Add</button></td>
-                {visibleHeaders.map(h => (
-                  <td key={h} className="px-2 py-1 align-top whitespace-nowrap">{valueFor(r, h) ?? ''}</td>
-                ))}
-              </tr>
-            ))}
+            {rows.map((r, idx) => {
+              const added = isAlreadyAdded(r, addedPaths)
+              const stickyBg = added ? 'bg-primary/20' : ''
+              return (
+                <tr key={r.id ?? idx} className={`border-b hover:bg-muted/30`}>
+                  <td className={`px-2 py-2 whitespace-nowrap align-middle w-10 sticky left-0 z-10 ${stickyBg}`}>
+                    <Badge variant="secondary">{idx+1}</Badge>
+                  </td>
+                  <td className={`px-2 py-2 align-middle whitespace-nowrap sticky left-10 z-10 ${stickyBg}`}>
+                    <RowPreview row={r} />
+                  </td>
+                  <td className={`px-2 py-2 whitespace-nowrap align-middle w-10 sticky left-[13.5rem] z-10 ${stickyBg}`}>
+                    <div className="flex items-center">
+                      <Button size="sm" variant="secondary" onClick={()=>onAdd && onAdd(r)}>{added ? 'Added' : 'Add'}</Button>
+                    </div>
+                  </td>
+                  {visibleHeaders.map((h, i) => (
+                    <td key={h} className={`px-2 py-2 align-middle whitespace-nowrap ${i === 0 ? 'pl-4' : ''}`}>{valueFor(r, h) ?? ''}</td>
+                  ))}
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -336,8 +350,8 @@ function Table({ headers, rows, onAdd, spec, hidePaths }) {
 
 function RowPreview({ row }) {
   return (
-    <div className="w-20">
-      <Media source={row} />
+    <div className="w-40">
+      <Media source={row} minWidth={160} minHeight={90} />
     </div>
   )
 }
@@ -357,7 +371,7 @@ function SkeletonList() {
   )
 }
 
-function Diff({ rows, headers, spec, hidePaths }) {
+function Diff({ rows, headers, spec, hidePaths, addedPaths, onAdd }) {
   const visibleHeaders = headers.filter(h => !fieldIsHidden(h, spec, hidePaths))
   function changedSet(curr, prev) {
     const set = new Set()
@@ -374,15 +388,22 @@ function Diff({ rows, headers, spec, hidePaths }) {
         const prev = i>0 ? rows[i-1] : null
         const changed = prev ? changedSet(row, prev) : new Set()
         const headersToShow = prev ? visibleHeaders.filter(h => changed.has(h)) : []
+        const added = isAlreadyAdded(row, addedPaths)
         return (
           <div key={row.id ?? i} className="border rounded p-2">
             <div className="grid grid-cols-[minmax(180px,220px)_1fr] gap-3">
               {/* Sticky left column with preview and summary */}
-              <div className="sticky top-2 self-start bg-card border rounded p-2">
-                <div className="text-xs text-muted-foreground mb-2 whitespace-nowrap">#{i+1} {row.name}</div>
-                <Media source={row} width={180} />
+              <div className={`sticky top-2 self-start bg-card border rounded p-2 ${added ? 'bg-primary/20' : ''}`}>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2 whitespace-nowrap">
+                  <Badge variant="secondary">{i+1}</Badge>
+                  <span className="truncate">{row.name}</span>
+                </div>
+                <Media source={row} width={200} minWidth={180} minHeight={100} />
                 <div className="mt-2 text-[11px] text-muted-foreground whitespace-nowrap">
                   {row.width}×{row.height} • {row.fps}fps • {Math.round(Number(row.duration)||0)}s
+                </div>
+                <div className="mt-2">
+                  <Button size="sm" variant="secondary" onClick={()=>onAdd && onAdd(row)}>{added ? 'Added' : 'Add'}</Button>
                 </div>
               </div>
               {/* Scrollable right column with diffs */}
@@ -463,6 +484,14 @@ function filterRows(rows, headers, term) {
 function valueFor(row, h) {
   if (h in row) return normalizeDisplay(h, row[h])
   return row.widgetValues?.[h]
+}
+function isAlreadyAdded(row, addedPaths) {
+  try {
+    const path = String(row.file_path || row.name || '')
+    return addedPaths instanceof Set ? addedPaths.has(path) : false
+  } catch {
+    return false
+  }
 }
 function normalizeDisplay(header, value) {
   return value == null ? '' : String(value)
