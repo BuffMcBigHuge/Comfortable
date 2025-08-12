@@ -382,6 +382,74 @@ function Diff({ rows, headers, spec, hidePaths, addedPaths, onAdd }) {
     }
     return set
   }
+  function isPowerLoraHeader(h) {
+    try {
+      const s = String(h)
+      return s.includes('Power Lora Loader (rgthree) #')
+    } catch { return false }
+  }
+  function parsePowerLoraSummary(s) {
+    try {
+      if (!s) return null
+      const arr = JSON.parse(String(s))
+      if (!Array.isArray(arr)) return null
+      const out = []
+      for (const it of arr) {
+        if (!it || typeof it !== 'object') continue
+        const l = typeof it.lora === 'string' ? it.lora : null
+        const st = it.strength != null ? Number(it.strength) : null
+        if (!l) continue
+        const norm = l.replace(/\\/g, '/').trim()
+        out.push({ lora: norm, strength: st })
+      }
+      return out
+    } catch { return null }
+  }
+  function basename(path) {
+    try { return String(path).split('/').pop() || String(path) } catch { return String(path) }
+  }
+  function renderPowerLoraDiff(currStr, prevStr) {
+    const curr = parsePowerLoraSummary(currStr) || []
+    const prev = parsePowerLoraSummary(prevStr) || []
+    if (!curr.length && !prev.length) return null
+    const mapCurr = new Map(curr.map(it => [it.lora, it]))
+    const mapPrev = new Map(prev.map(it => [it.lora, it]))
+    const added = []
+    const removed = []
+    const changed = []
+    const eps = 1e-6
+    for (const [l, it] of mapCurr) {
+      if (!mapPrev.has(l)) added.push({ lora: l, strength: it.strength })
+      else {
+        const p = mapPrev.get(l)
+        if ((it.strength ?? 0) - (p.strength ?? 0) > eps || (p.strength ?? 0) - (it.strength ?? 0) > eps) {
+          changed.push({ lora: l, from: p.strength, to: it.strength })
+        }
+      }
+    }
+    for (const [l, it] of mapPrev) {
+      if (!mapCurr.has(l)) removed.push({ lora: l, strength: it.strength })
+    }
+    if (added.length === 0 && removed.length === 0 && changed.length === 0) return (
+      <div className="text-sm text-muted-foreground">No changes</div>
+    )
+    added.sort((a,b)=>a.lora.localeCompare(b.lora))
+    removed.sort((a,b)=>a.lora.localeCompare(b.lora))
+    changed.sort((a,b)=>a.lora.localeCompare(b.lora))
+    return (
+      <div className="space-y-1">
+        {added.map(it => (
+          <div key={`+${it.lora}`} className="text-emerald-400 font-mono text-xs">+ {basename(it.lora)} ({it.strength ?? ''})</div>
+        ))}
+        {removed.map(it => (
+          <div key={`-${it.lora}`} className="text-red-400/80 font-mono text-[11px]">- {basename(it.lora)} ({it.strength ?? ''})</div>
+        ))}
+        {changed.map(it => (
+          <div key={`~${it.lora}`} className="text-amber-400 font-mono text-xs">~ {basename(it.lora)} {it.from ?? ''} → {it.to ?? ''}</div>
+        ))}
+      </div>
+    )
+  }
   return (
     <div className="space-y-3">
       {rows.map((row, i) => {
@@ -414,15 +482,26 @@ function Diff({ rows, headers, spec, hidePaths, addedPaths, onAdd }) {
                   <div className="text-sm text-muted-foreground">No changes vs previous</div>
                 ) : (
                   <div className="grid gap-2">
-                    {headersToShow.map(h => (
-                      <div key={h} className="grid grid-cols-[minmax(200px,280px)_1fr] gap-3 text-xs">
-                        <div className="text-muted-foreground whitespace-nowrap">{h}</div>
-                        <div className="font-mono">
-                          <div className="text-emerald-400 whitespace-pre-wrap break-words">{valueFor(row, h) ?? ''}</div>
-                          <div className="text-red-400/80 text-[11px] whitespace-pre-wrap break-words">{valueFor(prev, h) ?? ''}</div>
+                    {headersToShow.map(h => {
+                      const currVal = valueFor(row, h)
+                      const prevVal = valueFor(prev, h)
+                      const isPower = isPowerLoraHeader(h)
+                      return (
+                        <div key={h} className="grid grid-cols-[minmax(200px,280px)_1fr] gap-3 text-xs">
+                          <div className="text-muted-foreground whitespace-nowrap">{h}</div>
+                          <div>
+                            {isPower ? (
+                              renderPowerLoraDiff(currVal, prevVal)
+                            ) : (
+                              <div className="font-mono">
+                                <div className="text-emerald-400 whitespace-pre-wrap break-words">{currVal ?? ''}</div>
+                                <div className="text-red-400/80 text-[11px] whitespace-pre-wrap break-words">{prevVal ?? ''}</div>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </div>
@@ -521,7 +600,10 @@ function getSpecialNodeTypeSet() {
     const raw = typeof window !== 'undefined' ? window.localStorage.getItem('special_node_types') : null
     if (raw) {
       const arr = JSON.parse(raw)
-      if (Array.isArray(arr) && arr.length) return new Set(arr.map(String))
+      if (Array.isArray(arr) && arr.length) {
+        const merged = new Set([...DEFAULT_SPECIAL_NODE_TYPES, ...arr.map(String)])
+        return merged
+      }
     }
   } catch {}
   return new Set(DEFAULT_SPECIAL_NODE_TYPES)
@@ -546,10 +628,55 @@ function extractSpecialWidgetValues(workflowNorm, whitelistEnabled) {
     if (!outs.length) continue
     const wv = Array.isArray(node.widgets_values) ? node.widgets_values : []
     if (!wv.length) continue
-    // Use the first widget value as the representative value for all outputs
-    const firstVal = wv.find(v => v !== undefined && v !== null && String(v) !== '')
-    const val = firstVal !== undefined ? firstVal : wv[0]
-    const norm = typeof val === 'object' ? JSON.stringify(val) : val
+    // Choose a meaningful representative widget value:
+    // Special handling for Power Lora Loader (rgthree):
+    // Build a compact, stable summary of enabled loras and strengths so diffs are visible.
+    if (String(type) === 'Power Lora Loader (rgthree)') {
+      try {
+        const entries = []
+        for (const v of wv) {
+          if (!v || typeof v !== 'object') continue
+          const on = v.on === true || v.on === 'true'
+          const lora = v.lora != null ? String(v.lora) : null
+          const strength = v.strength != null ? Number(v.strength) : null
+          if (lora && on) {
+            // Normalize backslashes and whitespace for stability
+            const normPath = lora.replace(/\\/g, '/').trim()
+            entries.push({ lora: normPath, strength })
+          }
+        }
+        // Sort for stability and stringify
+        entries.sort((a, b) => a.lora.localeCompare(b.lora))
+        const normSummary = JSON.stringify(entries)
+        for (const o of outs) {
+          if (!o || typeof o !== 'object') continue
+          const outName = o.name || `out_${o.slot_index ?? ''}`
+          out[`${nodeIdent}.${outName}`] = normSummary
+        }
+        continue
+      } catch {}
+    }
+    // General case:
+    // - Prefer first primitive (string/number/boolean) that is non-empty
+    // - Else first object with keys other than just 'type' (skip empty {} and header-only objects)
+    // - Else fall back to the first defined entry
+    let chosen = undefined
+    for (const v of wv) {
+      if (v === undefined || v === null) continue
+      const t = typeof v
+      if (t === 'string' || t === 'number' || t === 'boolean') {
+        const s = String(v)
+        if (s !== '') { chosen = v; break }
+      } else if (t === 'object' && !Array.isArray(v)) {
+        const keys = Object.keys(v || {})
+        const keysExType = keys.filter(k => k !== 'type')
+        if (keysExType.length > 0) { chosen = v; break }
+      }
+    }
+    if (chosen === undefined) {
+      chosen = wv.find(v => v !== undefined && v !== null)
+    }
+    const norm = typeof chosen === 'object' ? JSON.stringify(chosen) : chosen
     for (const o of outs) {
       if (!o || typeof o !== 'object') continue
       const outName = o.name || `out_${o.slot_index ?? ''}`

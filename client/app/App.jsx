@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react'
 import { Timeline } from './components/Timeline.jsx'
 import { VideoTable } from './components/VideoTable.jsx'
-import { Card, CardContent, CardHeader, CardTitle } from './components/ui/card.jsx'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from './components/ui/card.jsx'
 import { analyzeFiles, exportClips, probeClip } from './lib/api.ts'
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Drawer, DrawerClose, DrawerContent, DrawerDescription, DrawerFooter, DrawerHeader, DrawerTitle, DrawerTrigger } from '@/components/ui/drawer'
@@ -207,10 +207,19 @@ export default function App() {
         <Card>
           <CardHeader>
             <div className="flex items-center justify-start gap-3">
-              <CardTitle className="flex items-center gap-3">
-                <ModeToggle />
-                <span><b>COMF</b>ORTABLE</span>
-              </CardTitle>
+              <ModeToggle />
+              <div className="flex flex-col gap-1">
+                <CardTitle className="flex items-center gap-3">
+                  <span>
+                    <b>COMF</b>OR<b>TABLE</b>
+                  </span>
+                </CardTitle>
+                <CardDescription>
+                  <span>
+                    <b>COMFY</b> Output Review <b>TABLE</b>
+                  </span>
+                </CardDescription>
+              </div>
               <Drawer open={isTimelineOpen} onOpenChange={setIsTimelineOpen} direction="right">
                 <DrawerTrigger asChild>
                   <Button variant="outline" size="sm">Timeline Export <span className="ml-1 text-xs opacity-70">({timeline.length})</span></Button>

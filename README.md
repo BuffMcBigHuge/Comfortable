@@ -1,4 +1,4 @@
-# COMFORTABLE
+# COMFORTABLE (COMFY Output Review TABLE)
 > ComfyUI Video Workflow Analyzer & Export
 
 This is a powerful, locally-run web application designed for artists and developers working with AI-generated video, particularly those using ComfyUI. It allows you to load a collection of videos, deeply analyze the embedded ComfyUI workflow metadata, and create customized video exports for review and comparison.
